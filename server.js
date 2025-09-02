@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const morgan = require('morgan');
 const mongoose = require('mongoose');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -9,6 +10,11 @@ const rateLimit = require('express-rate-limit');
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// in development mode, use morgan for logging
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+}
 
 // Rate limiting
 const limiter = rateLimit({
@@ -55,6 +61,6 @@ app.use('*', (req, res) => {
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🚀 Server is running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  // console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
