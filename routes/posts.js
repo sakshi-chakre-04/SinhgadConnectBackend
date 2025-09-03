@@ -5,6 +5,63 @@ const auth = require('../middleware/auth');
 
 const router = express.Router();
 
+// @route   GET /api/posts/department/:department
+// @desc    Get posts by department with pagination and sorting
+// @access  Public
+router.get('/department/:department', async (req, res) => {
+  try {
+    const { department } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const sortBy = req.query.sortBy || 'createdAt';
+    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+
+    // Build filter object
+    const filter = { department };
+
+    // Calculate skip value for pagination
+    const skip = (page - 1) * limit;
+
+    // Build sort object
+    let sortObj = {};
+    if (sortBy === 'upvotes') {
+      sortObj = { 'upvotes': sortOrder, 'createdAt': -1 };
+    } else if (sortBy === 'comments') {
+      sortObj = { 'commentCount': sortOrder, 'createdAt': -1 };
+    } else {
+      sortObj = { [sortBy]: sortOrder };
+    }
+
+    const posts = await Post.find(filter)
+      .populate('author', 'name department year')
+      .sort(sortObj)
+      .skip(skip)
+      .limit(limit);
+
+    // Get total count for pagination
+    const totalPosts = await Post.countDocuments(filter);
+    const totalPages = Math.ceil(totalPosts / limit);
+
+    // Calculate upvote/downvote counts for each post
+    const postsWithCounts = posts.map(post => ({
+      ...post.toObject(),
+      upvoteCount: post.upvotes.length,
+      downvoteCount: post.downvotes.length,
+      userVote: post.upvotes.includes(req.user?.id) ? 1 : (post.downvotes.includes(req.user?.id) ? -1 : 0)
+    }));
+
+    res.json({
+      posts: postsWithCounts,
+      currentPage: page,
+      totalPages,
+      totalPosts
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   GET /api/posts
 // @desc    Get all posts with pagination and filtering
 // @access  Public
