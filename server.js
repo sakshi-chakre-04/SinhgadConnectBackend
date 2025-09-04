@@ -26,27 +26,47 @@ const limiter = rateLimit({
 // CORS Configuration
 const allowedOrigins = ['http://localhost:5173', 'http://localhost:3000'];
 
-// Middleware
-app.use(helmet()); // Security headers
-app.use(limiter); // Rate limiting
+// Configure CORS with specific options
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check if the origin is in the allowed list or it's a development environment
+    if (process.env.NODE_ENV === 'development' || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Total-Count'],
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
 
-// CORS middleware
+// Apply CORS with the above options
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
+
+// Middleware
+app.use(helmet({
+  crossOriginResourcePolicy: false, // Disable the default CORS policy from helmet
+  contentSecurityPolicy: false // Temporarily disable CSP for development
+}));
+
+// Apply rate limiting only to API routes
+app.use('/api/', limiter);
+
+// Add a simple middleware to handle preflight requests
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Set CORS headers
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
-  }
-  
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-  
   next();
 });
 
