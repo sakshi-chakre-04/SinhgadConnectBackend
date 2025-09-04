@@ -36,6 +36,12 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Year is required'],
     enum: ['FE', 'SE', 'TE', 'BE']
   },
+  bio: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Bio cannot exceed 500 characters'],
+    default: ''
+  },
   isVerified: {
     type: Boolean,
     default: false

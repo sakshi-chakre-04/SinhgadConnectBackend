@@ -89,6 +89,42 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// @route   PATCH /api/auth/me
+// @desc    Update user profile
+// @access  Private
+router.patch('/me', auth, async (req, res) => {
+  try {
+    const updates = Object.keys(req.body);
+    const allowedUpdates = ['name', 'department', 'year', 'bio'];
+    const isValidOperation = updates.every(update => allowedUpdates.includes(update));
+
+    if (!isValidOperation) {
+      return res.status(400).json({ message: 'Invalid updates!' });
+    }
+
+    updates.forEach(update => req.user[update] = req.body[update]);
+    await req.user.save();
+    
+    // Refresh the user document to get the updated data
+    const updatedUser = await User.findById(req.user._id);
+    
+    res.json({
+      success: true,
+      user: {
+        id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        department: updatedUser.department,
+        year: updatedUser.year,
+        bio: updatedUser.bio,
+        createdAt: updatedUser.createdAt
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
 // @route   GET /api/auth/me
 // @desc    Get current user
 // @access  Private
@@ -100,7 +136,9 @@ router.get('/me', auth, async (req, res) => {
       name: req.user.name,
       email: req.user.email,
       department: req.user.department,
-      year: req.user.year
+      year: req.user.year,
+      bio: req.user.bio,
+      createdAt: req.user.createdAt
     }
   });
 });
