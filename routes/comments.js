@@ -1,6 +1,7 @@
 const express = require('express');
 const Comment = require('../models/Comment');
 const Post = require('../models/Post');
+const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
@@ -104,40 +105,134 @@ router.get('/:id', async (req, res) => {
 // @access  Private
 router.post('/', auth, async (req, res) => {
   try {
+    console.log('=== COMMENT CREATION REQUEST ===');
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('User:', req.user);
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    
     const { content, postId } = req.body;
-
-    // Validation
+    
     if (!content || !postId) {
-      return res.status(400).json({ 
-        message: 'Content and postId are required' 
+      const errorDetails = { 
+        message: 'Missing required fields',
+        required: ['content', 'postId'],
+        received: { 
+          content: { 
+            exists: !!content, 
+            type: typeof content,
+            value: content 
+          },
+          postId: { 
+            exists: !!postId, 
+            type: typeof postId,
+            value: postId 
+          }
+        }
+      };
+      
+      console.error('Validation error:', errorDetails);
+      return res.status(400).json(errorDetails);
+    }
+
+    // Find the post and verify it exists
+    const post = await Post.findById(postId).populate('author', 'id');
+    if (!post) {
+      console.error(`Post not found with ID: ${postId}`);
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    
+    console.log('Found post:', {
+      id: post._id,
+      title: post.title,
+      commentsCount: post.comments.length
+    });
+
+    const comment = new Comment({
+      content,
+      author: req.user.id,
+      post: postId
+    });
+
+    const savedComment = await comment.save();
+    
+    // Populate author details for the response
+    await savedComment.populate('author', 'name department year');
+    
+    // Add comment to post's comments array and update comment count
+    try {
+      post.comments.push(savedComment._id);
+      post.commentCount = post.comments.length;
+      await post.save();
+      console.log('Updated post with new comment:', {
+        postId: post._id,
+        commentId: savedComment._id,
+        newCommentCount: post.commentCount
+      });
+    } catch (postSaveError) {
+      console.error('Error updating post with new comment:', postSaveError);
+      // Attempt to rollback the comment creation
+      await Comment.findByIdAndDelete(savedComment._id);
+      return res.status(500).json({ 
+        message: 'Error updating post with new comment',
+        error: postSaveError.message 
       });
     }
 
-    // Check if post exists
-    const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({ message: 'Post not found' });
+    // Create notification for the post author if it's not the same as the commenter
+    if (post.author._id.toString() !== req.user.id) {
+      const notification = new Notification({
+        recipient: post.author._id,
+        sender: req.user.id,
+        type: 'comment',
+        post: postId,
+        content: `commented on your post: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`
+      });
+      await notification.save();
     }
 
-    const comment = await Comment.create({
-      content,
-      post: postId,
-      author: req.user._id
-    });
+    // Find mentions in the comment content
+    const mentionRegex = /@([a-zA-Z0-9_]+)/g;
+    let mentionMatch;
+    const mentionedUsernames = new Set();
+    
+    while ((mentionMatch = mentionRegex.exec(content)) !== null) {
+      mentionedUsernames.add(mentionMatch[1]);
+    }
+    
+    // Get the updated post with the latest comment count
+    const updatedPost = await Post.findById(postId).select('commentCount');
+    const commentCount = updatedPost?.commentCount || 0;
+    
+    console.log('Final comment count after update:', commentCount);
+    
+    // Prepare the response with the created comment and updated count
+    const response = {
+      ...savedComment._doc,
+      author: {
+        id: req.user.id,
+        name: req.user.name,
+        avatar: req.user.avatar
+      },
+      commentCount // Include the updated comment count in the response
+    };
 
-    // Update post comment count
-    await Post.findByIdAndUpdate(postId, {
-      $inc: { commentCount: 1 }
-    });
-
-    const populatedComment = await Comment.findById(comment._id)
-      .populate('author', 'name department year')
-      .populate('post', 'title');
+    // Create notifications for mentioned users
+    if (mentionedUsernames.size > 0) {
+      // In a real app, you would look up users by username and create notifications
+      // This is a simplified version
+      for (const username of mentionedUsernames) {
+        if (username !== req.user.username) { // Don't notify if user mentioned themselves
+          // In a real app, you would look up the user by username and create a notification
+          // For now, we'll just log it
+          console.log(`Mentioned user: ${username}`);
+        }
+      }
+    }
 
     res.status(201).json({
-      success: true,
+      message: 'Comment added successfully',
       comment: {
-        ...populatedComment.toObject(),
+        ...savedComment.toObject(),
         upvoteCount: 0,
         downvoteCount: 0,
         netVotes: 0

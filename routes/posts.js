@@ -1,6 +1,7 @@
 const express = require('express');
 const Post = require('../models/Post');
 const Comment = require('../models/Comment');
+const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
@@ -42,11 +43,25 @@ router.get('/department/:department', async (req, res) => {
     const totalPosts = await Post.countDocuments(filter);
     const totalPages = Math.ceil(totalPosts / limit);
 
-    // Calculate upvote/downvote counts for each post
+    // Get comment counts for all posts
+    const postIds = posts.map(post => post._id);
+    const commentCounts = await Comment.aggregate([
+      { $match: { post: { $in: postIds } } },
+      { $group: { _id: '$post', count: { $sum: 1 } } }
+    ]);
+
+    // Create a map of postId to comment count
+    const commentCountMap = commentCounts.reduce((acc, { _id, count }) => {
+      acc[_id.toString()] = count;
+      return acc;
+    }, {});
+
+    // Calculate upvote/downvote counts and add comment count for each post
     const postsWithCounts = posts.map(post => ({
       ...post.toObject(),
       upvoteCount: post.upvotes.length,
       downvoteCount: post.downvotes.length,
+      commentCount: commentCountMap[post._id.toString()] || 0,
       userVote: post.upvotes.includes(req.user?.id) ? 1 : (post.downvotes.includes(req.user?.id) ? -1 : 0)
     }));
 
@@ -275,7 +290,7 @@ router.delete('/:id', auth, async (req, res) => {
 });
 
 // @route   POST /api/posts/:id/vote
-// @desc    Upvote or downvote a post
+// @desc    Vote on a post (upvote/downvote)
 // @access  Private
 router.post('/:id/vote', auth, async (req, res) => {
   try {
@@ -283,44 +298,102 @@ router.post('/:id/vote', auth, async (req, res) => {
     const postId = req.params.id;
     const userId = req.user._id;
 
-    const post = await Post.findById(postId);
-
+    // Find the post and populate the author
+    const post = await Post.findById(postId).populate('author', 'id');
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
     }
 
-    // Remove user from both arrays first
-    post.upvotes = post.upvotes.filter(id => id.toString() !== userId.toString());
-    post.downvotes = post.downvotes.filter(id => id.toString() !== userId.toString());
-
-    // Add user to appropriate array based on vote type
-    if (voteType === 'upvote') {
-      post.upvotes.push(userId);
-    } else if (voteType === 'downvote') {
-      post.downvotes.push(userId);
+    // Check if user is the author
+    if (post.author._id.toString() === userId.toString()) {
+      return res.status(400).json({ message: 'You cannot vote on your own post' });
     }
-    // If voteType is 'remove', user is just removed from both arrays
 
+    // Check current vote status
+    const hasUpvoted = post.upvotes.includes(userId);
+    const hasDownvoted = post.downvotes.includes(userId);
+
+    let message = '';
+    let notificationCreated = false;
+
+    // Handle vote types
+    if (voteType === 'upvote') {
+      if (hasUpvoted) {
+        // Remove upvote if already upvoted
+        post.upvotes.pull(userId);
+        message = 'Upvote removed';
+      } else {
+        // Add upvote and remove downvote if exists
+        post.upvotes.addToSet(userId);
+        post.downvotes.pull(userId);
+        message = 'Post upvoted';
+        notificationCreated = true;
+      }
+    } else if (voteType === 'downvote') {
+      if (hasDownvoted) {
+        // Remove downvote if already downvoted
+        post.downvotes.pull(userId);
+        message = 'Downvote removed';
+      } else {
+        // Add downvote and remove upvote if exists
+        post.downvotes.addToSet(userId);
+        post.upvotes.pull(userId);
+        message = 'Post downvoted';
+      }
+    } else if (voteType === 'remove') {
+      // Remove both upvote and downvote
+      post.upvotes.pull(userId);
+      post.downvotes.pull(userId);
+      message = 'Vote removed';
+    } else {
+      return res.status(400).json({ message: 'Invalid vote type' });
+    }
+
+    // Save the updated post
     await post.save();
 
-    const updatedPost = await Post.findById(postId)
-      .populate('author', 'name department year');
+    // Create notification for the post author if it's an upvote
+    if (notificationCreated && post.author._id.toString() !== userId.toString()) {
+      // Check if a notification already exists for this action to avoid duplicates
+      const existingNotification = await Notification.findOne({
+        recipient: post.author._id,
+        sender: userId,
+        type: 'like',
+        post: postId
+      });
+
+      if (!existingNotification) {
+        const notification = new Notification({
+          recipient: post.author._id,
+          sender: userId,
+          type: 'like',
+          post: postId,
+          content: 'liked your post'
+        });
+        await notification.save();
+      }
+    }
+
+    // Populate the author field for the response
+    await post.populate('author', 'name department year');
+
+    // Calculate vote counts
+    const upvoteCount = post.upvotes.length;
+    const downvoteCount = post.downvotes.length;
+    const netVotes = upvoteCount - downvoteCount;
 
     res.json({
-      success: true,
+      message,
       post: {
-        ...updatedPost.toObject(),
-        upvoteCount: updatedPost.upvotes.length,
-        downvoteCount: updatedPost.downvotes.length,
-        netVotes: updatedPost.upvotes.length - updatedPost.downvotes.length,
-        userVote: voteType === 'remove' ? null : voteType
+        ...post.toObject(),
+        upvoteCount,
+        downvoteCount,
+        netVotes
       }
     });
   } catch (error) {
-    if (error.name === 'CastError') {
-      return res.status(404).json({ message: 'Post not found' });
-    }
-    res.status(400).json({ message: error.message });
+    console.error('Error voting on post:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
