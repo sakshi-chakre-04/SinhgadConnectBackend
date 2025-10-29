@@ -57,21 +57,39 @@ router.post('/register', async (req, res) => {
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
+    console.log('Login request received:', { 
+      email: req.body.email,
+      hasPassword: !!req.body.password 
+    });
+
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      console.log('Missing credentials:', { email: !!email, password: !!password });
+      return res.status(400).json({ message: 'Please provide email and password' });
+    }
+
     // Check if user exists
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.toLowerCase() });
+    console.log('User found:', user ? 'Yes' : 'No');
+    
     if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      console.log('No user found with email:', email);
+      return res.status(400).json({ message: 'Invalid email or password' });
     }
 
     // Check password
+    console.log('Comparing passwords...');
     const isMatch = await user.comparePassword(password);
+    console.log('Password match:', isMatch);
+    
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      console.log('Password does not match for user:', email);
+      return res.status(400).json({ message: 'Invalid email or password' });
     }
 
     const token = generateToken(user._id);
+    console.log('Login successful for user:', email);
 
     res.json({
       success: true,
@@ -85,7 +103,8 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error during login' });
   }
 });
 
