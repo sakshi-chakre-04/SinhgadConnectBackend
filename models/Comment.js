@@ -7,8 +7,8 @@ const commentSchema = new mongoose.Schema({
     maxlength: [1000, 'Comment cannot exceed 1000 characters']
   },
   author: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: mongoose.Schema.Types.ObjectId,//tells mongoose that this is a object id
+    ref: 'User',//tells mongoose that this is a reference to the User model
     required: true
   },
   post: {

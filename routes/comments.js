@@ -246,7 +246,7 @@ router.post('/', auth, async (req, res) => {
 // @route   PUT /api/comments/:id
 // @desc    Update a comment
 // @access  Private (Author only)
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth, async (req, res) => { //not yet used
   try {
     const { content } = req.body;
 
@@ -292,7 +292,7 @@ router.put('/:id', auth, async (req, res) => {
 // @route   DELETE /api/comments/:id
 // @desc    Delete a comment
 // @access  Private (Author only)
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, async (req, res) => { //not yet used
   try {
     const comment = await Comment.findById(req.params.id);
 

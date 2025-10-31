@@ -1,0 +1,70 @@
+```mermaid
+graph TD
+    Client[Client Application] <--> |HTTP/HTTPS| API[API Gateway]
+    API <--> |MongoDB Atlas| Database[(MongoDB Atlas)]
+
+    subgraph "Express Server"
+        API --> |Request| RateLimiter[Rate Limiter]
+        RateLimiter --> |Next| Security[Security Middleware]
+        Security --> |Next| Parser[Body Parser]
+
+        subgraph "Authentication Flow"
+            AuthRoutes["/api/auth/*"]
+            AuthController[Auth Controller]
+            JWT[JWT Verification]
+            
+            AuthRoutes --> |Register/Login| AuthController
+            AuthController --> |Verify Credentials| Database
+            AuthController --> |Generate| JWT
+            JWT --> |Token| Client
+        end
+
+        subgraph "Protected Routes"
+            AuthMiddleware[Auth Middleware]
+            PostRoutes["/api/posts/*"]
+            PostController[Post Controller]
+            CommentRoutes["/api/comments/*"]
+            CommentController[Comment Controller]
+            NotificationRoutes["/api/notifications/*"]
+            NotificationController[Notification Controller]
+
+            PostRoutes --> |Requires Auth| AuthMiddleware
+            CommentRoutes --> |Requires Auth| AuthMiddleware
+            NotificationRoutes --> |Requires Auth| AuthMiddleware
+
+            PostController --> |CRUD Operations| Database
+            CommentController --> |CRUD Operations| Database
+            NotificationController --> |CRUD Operations| Database
+        end
+
+        Parser --> |Public Routes| AuthRoutes
+        Parser --> |Protected Routes| AuthMiddleware
+        AuthMiddleware --> |Valid Token| PostRoutes
+        AuthMiddleware --> |Valid Token| CommentRoutes
+        AuthMiddleware --> |Valid Token| NotificationRoutes
+    end
+
+    subgraph "Error Handling"
+        ErrorHandler[Global Error Handler]
+        Validation[Request Validation]
+        
+        AuthController --> |Error| ErrorHandler
+        PostController --> |Error| ErrorHandler
+        CommentController --> |Error| ErrorHandler
+        NotificationController --> |Error| ErrorHandler
+        ErrorHandler --> |Error Response| Client
+    end
+
+    classDef client fill:#4a6baf,stroke:#3a5a9a,color:white,stroke-width:2px
+    classDef database fill:#5a9aa8,stroke:#4a8a98,color:white,stroke-width:2px
+    classDef controller fill:#8e44ad,stroke:#7d3c98,color:white,stroke-width:2px
+    classDef middleware fill:#27ae60,stroke:#1e8449,color:white,stroke-width:2px
+    classDef routes fill:#e67e22,stroke:#d35400,color:white,stroke-width:2px
+    classDef error fill:#e74c3c,stroke:#c0392b,color:white,stroke-width:2px
+
+    class Client,API,Database client,database
+    class AuthController,PostController,CommentController,NotificationController controller
+    class RateLimiter,Security,Parser,AuthMiddleware,JWT middleware
+    class AuthRoutes,PostRoutes,CommentRoutes,NotificationRoutes routes
+    class ErrorHandler,Validation error
+```
