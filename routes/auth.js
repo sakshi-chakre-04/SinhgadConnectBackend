@@ -57,14 +57,15 @@ router.post('/register', async (req, res) => {
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
-    console.log('Login request received:', { 
+    console.log('Login request   received:', { 
       email: req.body.email,
       hasPassword: !!req.body.password 
+      
     });
 
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (!email || !password ) {
       console.log('Missing credentials:', { email: !!email, password: !!password });
       return res.status(400).json({ message: 'Please provide email and password' });
     }
@@ -89,7 +90,7 @@ router.post('/login', async (req, res) => {
     }
 
     const token = generateToken(user._id);
-    console.log('Login successful for user:', email);
+    console.log('Login successful for user', email);
 
     res.json({
       success: true,
