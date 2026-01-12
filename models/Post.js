@@ -41,6 +41,24 @@ const postSchema = new mongoose.Schema({
     type: [Number],
     default: [],
     select: false // Don't include by default in queries for performance
+  },
+  // AI-generated fields
+  summary: {
+    type: String,
+    default: ''
+  },
+  sentiment: {
+    score: { type: Number, default: 0 },      // -1 (negative) to 1 (positive)
+    label: { type: String, default: 'neutral' } // positive, neutral, negative
+  },
+  tags: {
+    type: [String],
+    default: []
+  },
+  postType: {
+    type: String,
+    enum: ['question', 'discussion', 'announcement'],
+    default: 'discussion'
   }
 }, {
   timestamps: true

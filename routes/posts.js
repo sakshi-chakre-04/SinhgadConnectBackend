@@ -3,7 +3,12 @@ const Post = require('../models/Post');
 const Comment = require('../models/Comment');
 const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
-const { generatePostEmbedding } = require('../services/geminiService');
+const {
+  generatePostEmbedding,
+  generateSummary,
+  analyzeSentiment,
+  generateTags
+} = require('../services/geminiService');
 
 const router = express.Router();
 
@@ -100,31 +105,46 @@ router.get('/:id', async (req, res) => {
 
 // ------------------------------
 // @route   POST /api/posts
-// @desc    Create a new post
+// @desc    Create a new post with AI-generated content
 // @access  Private
 // ------------------------------
 router.post('/', auth, async (req, res) => {
   try {
-    const { title, content, department } = req.body;
+    const { title, content, department, postType } = req.body;
     if (!title || !content || !department) {
       return res.status(400).json({ message: 'Title, content, and department are required' });
     }
 
-    // Generate embedding for semantic search
-    let embedding = [];
-    try {
-      embedding = await generatePostEmbedding(title, content);
-    } catch (embeddingError) {
-      console.error('Failed to generate embedding:', embeddingError.message);
-      // Continue without embedding - post will still be created
-    }
+    // Generate AI content in parallel for speed
+    const [embedding, summary, sentiment, tags] = await Promise.all([
+      generatePostEmbedding(title, content).catch(err => {
+        console.error('Embedding error:', err.message);
+        return [];
+      }),
+      generateSummary(title, content).catch(err => {
+        console.error('Summary error:', err.message);
+        return content.substring(0, 150);
+      }),
+      analyzeSentiment(content).catch(err => {
+        console.error('Sentiment error:', err.message);
+        return { score: 0, label: 'neutral' };
+      }),
+      generateTags(title, content).catch(err => {
+        console.error('Tags error:', err.message);
+        return [];
+      })
+    ]);
 
     const post = await Post.create({
       title,
       content,
       department,
+      postType: postType || 'discussion',
       author: req.user._id,
       embedding,
+      summary,
+      sentiment,
+      tags,
     });
 
     const populatedPost = await Post.findById(post._id).populate('author', AUTHOR_FIELDS);
