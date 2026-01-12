@@ -3,6 +3,7 @@ const Post = require('../models/Post');
 const Comment = require('../models/Comment');
 const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
+const { generatePostEmbedding } = require('../services/geminiService');
 
 const router = express.Router();
 
@@ -45,8 +46,8 @@ router.get('/', async (req, res) => {
       sortBy === 'upvotes'
         ? { upvotes: sortOrder, createdAt: -1 }
         : sortBy === 'comments'
-        ? { commentCount: sortOrder, createdAt: -1 }
-        : { [sortBy]: sortOrder };
+          ? { commentCount: sortOrder, createdAt: -1 }
+          : { [sortBy]: sortOrder };
 
     const posts = await Post.find(filter)
       .populate('author', AUTHOR_FIELDS)
@@ -109,11 +110,21 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ message: 'Title, content, and department are required' });
     }
 
+    // Generate embedding for semantic search
+    let embedding = [];
+    try {
+      embedding = await generatePostEmbedding(title, content);
+    } catch (embeddingError) {
+      console.error('Failed to generate embedding:', embeddingError.message);
+      // Continue without embedding - post will still be created
+    }
+
     const post = await Post.create({
       title,
       content,
       department,
       author: req.user._id,
+      embedding,
     });
 
     const populatedPost = await Post.findById(post._id).populate('author', AUTHOR_FIELDS);
@@ -132,7 +143,7 @@ router.post('/', auth, async (req, res) => {
 // @desc    Update a post (Author only)
 // @access  Private
 // ------------------------------
-router.put('/:id', auth, async (req, res) => { //not used yet
+router.put('/:id', auth, async (req, res) => {
   try {
     const { title, content, department } = req.body;
     const post = await Post.findById(req.params.id);
@@ -142,9 +153,20 @@ router.put('/:id', auth, async (req, res) => { //not used yet
       return res.status(403).json({ message: 'Not authorized to update this post' });
     }
 
+    const contentChanged = (title && title !== post.title) || (content && content !== post.content);
+
     if (title) post.title = title;
     if (content) post.content = content;
     if (department) post.department = department;
+
+    // Regenerate embedding if content changed
+    if (contentChanged) {
+      try {
+        post.embedding = await generatePostEmbedding(post.title, post.content);
+      } catch (embeddingError) {
+        console.error('Failed to regenerate embedding:', embeddingError.message);
+      }
+    }
 
     await post.save();
 
