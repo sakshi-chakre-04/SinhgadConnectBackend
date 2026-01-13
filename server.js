@@ -59,6 +59,7 @@ app.use('/api/posts', require('./routes/posts'));
 app.use('/api/comments', require('./routes/comments'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/search', require('./routes/search'));
+app.use('/api/chat', require('./routes/chat'));
 
 // Error handler
 app.use((err, req, res, next) => {
