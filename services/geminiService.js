@@ -201,7 +201,10 @@ async function moderateContent(text) {
         ];
 
         const hateSpeechWords = [
-            'kill yourself', 'kys', 'die', 'murder', 'rape', 'terrorist'
+            'kill yourself', 'kys', 'die', 'murder', 'rape', 'terrorist',
+            'kill you', 'i will kill', 'gonna kill', 'going to kill',
+            'i\'ll kill', 'beat you up', 'hurt you', 'attack you',
+            'shoot you', 'stab you', 'bomb', 'threat', 'hang yourself'
         ];
 
         // Check profanity
@@ -235,7 +238,8 @@ Content: "${text}"`;
             }
         } catch (aiError) {
             // AI check failed, but keyword check passed - allow content
-            console.log('AI moderation unavailable, using keyword filter only');
+            console.log('⚠️ AI moderation failed:', aiError.message);
+            console.log('   Falling back to keyword filter only');
         }
 
         return { isSafe: true, reason: 'Content is appropriate' };
