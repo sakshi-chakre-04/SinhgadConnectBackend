@@ -59,7 +59,15 @@ const postSchema = new mongoose.Schema({
     type: String,
     enum: ['question', 'discussion', 'announcement'],
     default: 'discussion'
-  }
+  },
+  // File attachments (images, PDFs, documents)
+  attachments: [{
+    url: String,
+    publicId: String,
+    type: { type: String, enum: ['image', 'pdf', 'document'] },
+    filename: String,
+    size: Number
+  }]
 }, {
   timestamps: true
 });

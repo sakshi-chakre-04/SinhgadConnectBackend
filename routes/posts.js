@@ -110,7 +110,7 @@ router.get('/:id', async (req, res) => {
 // ------------------------------
 router.post('/', auth, async (req, res) => {
   try {
-    const { title, content, department, postType } = req.body;
+    const { title, content, department, postType, attachments } = req.body;
     if (!title || !content || !department) {
       return res.status(400).json({ message: 'Title, content, and department are required' });
     }
@@ -141,6 +141,7 @@ router.post('/', auth, async (req, res) => {
       department,
       postType: postType || 'discussion',
       author: req.user._id,
+      attachments: attachments || [],
       embedding,
       summary,
       sentiment,
