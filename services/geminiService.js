@@ -179,6 +179,72 @@ async function generateTags(title, content) {
     }
 }
 
+/**
+ * Moderate content for inappropriate material
+ * Uses keyword filter + AI for comprehensive moderation
+ * @param {string} text - Content to moderate (title, content, or comment)
+ * @returns {Promise<{isSafe: boolean, reason: string}>}
+ */
+async function moderateContent(text) {
+    try {
+        if (!text || text.trim().length === 0) {
+            return { isSafe: true, reason: 'Empty content' };
+        }
+
+        const lowerText = text.toLowerCase();
+
+        // First-pass: Keyword-based filter (always works, no API needed)
+        const profanityWords = [
+            'fuck', 'shit', 'bitch', 'ass', 'damn', 'crap', 'bastard',
+            'dick', 'cock', 'pussy', 'whore', 'slut', 'fag', 'nigger',
+            'retard', 'cunt', 'motherfucker', 'bullshit', 'asshole'
+        ];
+
+        const hateSpeechWords = [
+            'kill yourself', 'kys', 'die', 'murder', 'rape', 'terrorist'
+        ];
+
+        // Check profanity
+        for (const word of profanityWords) {
+            if (lowerText.includes(word)) {
+                return { isSafe: false, reason: 'Contains inappropriate language' };
+            }
+        }
+
+        // Check hate speech
+        for (const phrase of hateSpeechWords) {
+            if (lowerText.includes(phrase)) {
+                return { isSafe: false, reason: 'Contains harmful or threatening content' };
+            }
+        }
+
+        // Second-pass: AI moderation for nuanced cases (optional, may fail due to rate limits)
+        try {
+            const prompt = `Is this content appropriate for a college platform? Respond with JSON {"isSafe": true/false, "reason": "brief reason"}
+Content: "${text}"`;
+
+            const response = await ai.models.generateContent({
+                model: 'models/gemini-2.5-flash',
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: { responseMimeType: 'application/json' }
+            });
+
+            const result = JSON.parse(response.text);
+            if (result.isSafe === false) {
+                return { isSafe: false, reason: result.reason || 'Content flagged by AI' };
+            }
+        } catch (aiError) {
+            // AI check failed, but keyword check passed - allow content
+            console.log('AI moderation unavailable, using keyword filter only');
+        }
+
+        return { isSafe: true, reason: 'Content is appropriate' };
+    } catch (error) {
+        console.error('Error in moderation:', error.message);
+        return { isSafe: false, reason: 'Moderation error. Please try again.' };
+    }
+}
+
 module.exports = {
     generateEmbedding,
     generatePostEmbedding,
@@ -186,4 +252,6 @@ module.exports = {
     generateSummary,
     analyzeSentiment,
     generateTags,
+    moderateContent,
 };
+

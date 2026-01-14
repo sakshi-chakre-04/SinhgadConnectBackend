@@ -3,8 +3,55 @@ const Comment = require('../models/Comment');
 const Post = require('../models/Post');
 const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
+const { sendNotificationToUser } = require('../socket');
+const { moderateContent } = require('../services/geminiService');
 
 const router = express.Router();
+
+// @route   GET /api/comments/user/:userId
+// @desc    Get all comments by a specific user
+// @access  Public
+router.get('/user/:userId', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const comments = await Comment.find({ author: req.params.userId })
+      .populate('author', 'name department year')
+      .populate('post', 'title')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalComments = await Comment.countDocuments({ author: req.params.userId });
+    const totalPages = Math.ceil(totalComments / limit);
+
+    res.json({
+      success: true,
+      comments: comments.map(comment => ({
+        ...comment.toObject(),
+        upvoteCount: comment.upvotes?.length || 0,
+        downvoteCount: comment.downvotes?.length || 0,
+      })),
+      stats: {
+        totalComments
+      },
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalComments,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      }
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(500).json({ message: error.message });
+  }
+});
 
 // @route   GET /api/comments/post/:postId
 // @desc    Get all comments for a specific post
@@ -109,29 +156,39 @@ router.post('/', auth, async (req, res) => {
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
     console.log('User:', req.user);
     console.log('Request body:', JSON.stringify(req.body, null, 2));
-    
+
     const { content, postId } = req.body;
-    
+
     if (!content || !postId) {
-      const errorDetails = { 
+      const errorDetails = {
         message: 'Missing required fields',
         required: ['content', 'postId'],
-        received: { 
-          content: { 
-            exists: !!content, 
+        received: {
+          content: {
+            exists: !!content,
             type: typeof content,
-            value: content 
+            value: content
           },
-          postId: { 
-            exists: !!postId, 
+          postId: {
+            exists: !!postId,
             type: typeof postId,
-            value: postId 
+            value: postId
           }
         }
       };
-      
+
       console.error('Validation error:', errorDetails);
       return res.status(400).json(errorDetails);
+    }
+
+    // 🛡️ AI Content Moderation - Check BEFORE publishing
+    const moderation = await moderateContent(content);
+    if (!moderation.isSafe) {
+      return res.status(400).json({
+        message: 'Your comment contains inappropriate content and cannot be published.',
+        reason: moderation.reason,
+        blocked: true
+      });
     }
 
     // Find the post and verify it exists
@@ -140,7 +197,7 @@ router.post('/', auth, async (req, res) => {
       console.error(`Post not found with ID: ${postId}`);
       return res.status(404).json({ message: 'Post not found' });
     }
-    
+
     console.log('Found post:', {
       id: post._id,
       title: post.title,
@@ -154,10 +211,10 @@ router.post('/', auth, async (req, res) => {
     });
 
     const savedComment = await comment.save();
-    
+
     // Populate author details for the response
     await savedComment.populate('author', 'name department year');
-    
+
     // Add comment to post's comments array and update comment count
     try {
       post.comments.push(savedComment._id);
@@ -172,9 +229,9 @@ router.post('/', auth, async (req, res) => {
       console.error('Error updating post with new comment:', postSaveError);
       // Attempt to rollback the comment creation
       await Comment.findByIdAndDelete(savedComment._id);
-      return res.status(500).json({ 
+      return res.status(500).json({
         message: 'Error updating post with new comment',
-        error: postSaveError.message 
+        error: postSaveError.message
       });
     }
 
@@ -187,24 +244,31 @@ router.post('/', auth, async (req, res) => {
         post: postId,
         content: `commented on your post: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`
       });
-      await notification.save();
+      const savedNotification = await notification.save();
+
+      // Populate sender for real-time notification
+      await savedNotification.populate('sender', 'name');
+      await savedNotification.populate('post', 'title');
+
+      // Send real-time notification via socket
+      sendNotificationToUser(post.author._id, savedNotification);
     }
 
     // Find mentions in the comment content
     const mentionRegex = /@([a-zA-Z0-9_]+)/g;
     let mentionMatch;
     const mentionedUsernames = new Set();
-    
+
     while ((mentionMatch = mentionRegex.exec(content)) !== null) {
       mentionedUsernames.add(mentionMatch[1]);
     }
-    
+
     // Get the updated post with the latest comment count
     const updatedPost = await Post.findById(postId).select('commentCount');
     const commentCount = updatedPost?.commentCount || 0;
-    
+
     console.log('Final comment count after update:', commentCount);
-    
+
     // Prepare the response with the created comment and updated count
     const response = {
       ...savedComment._doc,

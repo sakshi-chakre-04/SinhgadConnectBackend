@@ -7,10 +7,15 @@ const {
   generatePostEmbedding,
   generateSummary,
   analyzeSentiment,
-  generateTags
+  generateTags,
+  moderateContent
 } = require('../services/geminiService');
+const { sendNotificationToUser } = require('../socket');
 
 const router = express.Router();
+
+// Milestone thresholds for upvote notifications
+const UPVOTE_MILESTONES = [5, 10, 25, 50, 100, 250, 500, 1000];
 
 // ------------------------------
 // Helper functions
@@ -49,10 +54,8 @@ router.get('/', async (req, res) => {
 
     const sortObj =
       sortBy === 'upvotes'
-        ? { upvotes: sortOrder, createdAt: -1 }
-        : sortBy === 'comments'
-          ? { commentCount: sortOrder, createdAt: -1 }
-          : { [sortBy]: sortOrder };
+        ? { 'upvotes.length': sortOrder, createdAt: -1 }
+        : { [sortBy]: sortOrder };
 
     const posts = await Post.find(filter)
       .populate('author', AUTHOR_FIELDS)
@@ -63,14 +66,9 @@ router.get('/', async (req, res) => {
     const totalPosts = await Post.countDocuments(filter);
     const totalPages = Math.ceil(totalPosts / limit);
 
-    const postsWithCounts = posts.map((post) => ({
-      ...post.toObject(),
-      ...getVoteCounts(post),
-    }));
-
     res.json({
       success: true,
-      posts: postsWithCounts,
+      posts: posts.map((post) => ({ ...post.toObject(), ...getVoteCounts(post) })),
       pagination: {
         currentPage: page,
         totalPages,
@@ -80,6 +78,53 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ------------------------------
+// @route   GET /api/posts/user/:userId
+// @desc    Get all posts by a specific user
+// @access  Public
+// ------------------------------
+router.get('/user/:userId', async (req, res) => {
+  try {
+    const page = +req.query.page || 1;
+    const limit = +req.query.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const posts = await Post.find({ author: req.params.userId })
+      .populate('author', AUTHOR_FIELDS)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPosts = await Post.countDocuments({ author: req.params.userId });
+    const totalPages = Math.ceil(totalPosts / limit);
+
+    // Calculate total upvotes received across all posts
+    const allUserPosts = await Post.find({ author: req.params.userId });
+    const totalUpvotes = allUserPosts.reduce((sum, post) => sum + post.upvotes.length, 0);
+
+    res.json({
+      success: true,
+      posts: posts.map((post) => ({ ...post.toObject(), ...getVoteCounts(post) })),
+      stats: {
+        totalPosts,
+        totalUpvotes
+      },
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalPosts,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(404).json({ message: 'User not found' });
+    }
     res.status(500).json({ message: error.message });
   }
 });
@@ -113,6 +158,16 @@ router.post('/', auth, async (req, res) => {
     const { title, content, department, postType, attachments } = req.body;
     if (!title || !content || !department) {
       return res.status(400).json({ message: 'Title, content, and department are required' });
+    }
+
+    // 🛡️ AI Content Moderation - Check BEFORE publishing
+    const moderation = await moderateContent(`${title}\n\n${content}`);
+    if (!moderation.isSafe) {
+      return res.status(400).json({
+        message: 'Your post contains inappropriate content and cannot be published.',
+        reason: moderation.reason,
+        blocked: true
+      });
     }
 
     // Generate AI content in parallel for speed
@@ -253,20 +308,21 @@ router.post('/:id/vote', auth, async (req, res) => {
         post.downvotes.pull(userId);
         message = 'Post upvoted';
 
-        const existingNotification = await Notification.findOne({
-          recipient: post.author._id,
-          sender: userId,
-          type: 'like',
-          post: postId,
-        });
-        if (!existingNotification) {
-          await Notification.create({
+        // Check for upvote milestones (5, 10, 25, 50, 100, etc.)
+        const newUpvoteCount = post.upvotes.length;
+        if (UPVOTE_MILESTONES.includes(newUpvoteCount)) {
+          const notification = await Notification.create({
             recipient: post.author._id,
             sender: userId,
-            type: 'like',
+            type: 'milestone',
             post: postId,
-            content: 'liked your post',
+            content: `🎉 Your post reached ${newUpvoteCount} upvotes!`,
           });
+
+          // Populate and send via socket
+          await notification.populate('sender', 'name');
+          await notification.populate('post', 'title');
+          sendNotificationToUser(post.author._id, notification);
         }
       }
     } else if (voteType === 'downvote') {
