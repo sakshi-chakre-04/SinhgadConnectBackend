@@ -381,4 +381,49 @@ router.get('/:id/vote-status', auth, async (req, res) => {
   }
 });
 
+// ------------------------------
+// @route   POST /api/posts/:id/summarize
+// @desc    Generate AI summary for a post
+// @access  Private
+// ------------------------------
+router.post('/:id/summarize', auth, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: 'Post not found' });
+
+    // If summary already exists and is recent (cached), return it
+    if (post.aiSummary && post.aiSummaryGeneratedAt) {
+      const hoursSinceGeneration = (Date.now() - post.aiSummaryGeneratedAt) / (1000 * 60 * 60);
+      if (hoursSinceGeneration < 24) {
+        return res.json({
+          success: true,
+          summary: post.aiSummary,
+          cached: true
+        });
+      }
+    }
+
+    // Generate new summary using Gemini
+    const summary = await generateSummary(post.title, post.content);
+
+    // Cache the summary in the post document
+    post.aiSummary = summary;
+    post.aiSummaryGeneratedAt = new Date();
+    await post.save();
+
+    res.json({
+      success: true,
+      summary,
+      cached: false
+    });
+  } catch (error) {
+    console.error('Error generating summary:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate summary'
+    });
+  }
+});
+
 module.exports = router;
+

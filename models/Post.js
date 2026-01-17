@@ -55,6 +55,15 @@ const postSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
+  // On-demand AI summary (user-triggered)
+  aiSummary: {
+    type: String,
+    default: ''
+  },
+  aiSummaryGeneratedAt: {
+    type: Date,
+    default: null
+  },
   postType: {
     type: String,
     enum: ['question', 'discussion', 'announcement'],
