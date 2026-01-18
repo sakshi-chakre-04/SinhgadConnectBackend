@@ -12,6 +12,9 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy (required for Render, Heroku, etc.)
+app.set('trust proxy', 1);
+
 // Initialize Socket.io
 initSocket(server);
 
@@ -35,7 +38,8 @@ const allowedOrigins = [
   'https://sinhgad-connect-frontend.vercel.app',
   /\.vercel\.app$/  // Allow all Vercel preview deployments
 ];
-app.use(cors({
+
+const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
@@ -53,7 +57,16 @@ app.use(cors({
     }
   },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  optionsSuccessStatus: 200 // For legacy browser support
+};
+
+// Apply CORS
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 // Security
 app.use(helmet());
