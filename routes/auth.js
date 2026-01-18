@@ -57,15 +57,15 @@ router.post('/register', async (req, res) => {
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
-    console.log('Login request   received:', { 
+    console.log('Login request   received:', {
       email: req.body.email,
-      hasPassword: !!req.body.password 
-      
+      hasPassword: !!req.body.password
+
     });
 
     const { email, password } = req.body;
 
-    if (!email || !password ) {
+    if (!email || !password) {
       console.log('Missing credentials:', { email: !!email, password: !!password });
       return res.status(400).json({ message: 'Please provide email and password' });
     }
@@ -73,7 +73,7 @@ router.post('/login', async (req, res) => {
     // Check if user exists
     const user = await User.findOne({ email: email.toLowerCase() });
     console.log('User found:', user ? 'Yes' : 'No');
-    
+
     if (!user) {
       console.log('No user found with email:', email);
       return res.status(400).json({ message: 'Invalid email or password' });
@@ -83,7 +83,7 @@ router.post('/login', async (req, res) => {
     console.log('Comparing passwords...');
     const isMatch = await user.comparePassword(password);
     console.log('Password match:', isMatch);
-    
+
     if (!isMatch) {
       console.log('Password does not match for user:', email);
       return res.status(400).json({ message: 'Invalid email or password' });
@@ -115,7 +115,7 @@ router.post('/login', async (req, res) => {
 router.patch('/me', auth, async (req, res) => {
   try {
     const updates = Object.keys(req.body);
-    const allowedUpdates = ['name', 'department', 'year', 'bio'];
+    const allowedUpdates = ['name', 'department', 'year', 'bio', 'skills'];
     const isValidOperation = updates.every(update => allowedUpdates.includes(update));
 
     if (!isValidOperation) {
@@ -124,10 +124,10 @@ router.patch('/me', auth, async (req, res) => {
 
     updates.forEach(update => req.user[update] = req.body[update]);
     await req.user.save();
-    
+
     // Refresh the user document to get the updated data
     const updatedUser = await User.findById(req.user._id);
-    
+
     res.json({
       success: true,
       user: {
@@ -137,6 +137,7 @@ router.patch('/me', auth, async (req, res) => {
         department: updatedUser.department,
         year: updatedUser.year,
         bio: updatedUser.bio,
+        skills: updatedUser.skills || [],
         createdAt: updatedUser.createdAt
       }
     });
@@ -158,6 +159,7 @@ router.get('/me', auth, async (req, res) => {
       department: req.user.department,
       year: req.user.year,
       bio: req.user.bio,
+      skills: req.user.skills || [],
       createdAt: req.user.createdAt
     }
   });

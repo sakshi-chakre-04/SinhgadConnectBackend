@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     validate: {
-      validator: function(email) {
+      validator: function (email) {
         return validator.isEmail(email) && email.endsWith('@sinhgad.edu');
       },
       message: 'Please provide a valid @sinhgad.edu email address'
@@ -42,6 +42,16 @@ const userSchema = new mongoose.Schema({
     maxlength: [500, 'Bio cannot exceed 500 characters'],
     default: ''
   },
+  skills: {
+    type: [String],
+    default: [],
+    validate: {
+      validator: function (arr) {
+        return arr.length <= 10; // Max 10 skills
+      },
+      message: 'Cannot have more than 10 skills'
+    }
+  },
   isVerified: {
     type: Boolean,
     default: false
@@ -51,10 +61,10 @@ const userSchema = new mongoose.Schema({
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   // Only hash the password if it has been modified (or is new)
   if (!this.isModified('password')) return next();
-  
+
   try {
     console.log('Hashing password...');
     // Generate a salt
@@ -70,7 +80,7 @@ userSchema.pre('save', async function(next) {
 });
 
 // Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userSchema.methods.comparePassword = async function (candidatePassword) {
   try {
     console.log('Comparing passwords...');
     const isMatch = await bcrypt.compare(candidatePassword, this.password);
@@ -81,6 +91,6 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
     return false;
   }
 };
-  
-  const User = mongoose.model('User', userSchema);
-  module.exports = User;
+
+const User = mongoose.model('User', userSchema);
+module.exports = User;
