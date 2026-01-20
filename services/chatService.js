@@ -95,9 +95,10 @@ async function retrieveRelevantPosts(question, limit = 5) {
 /**
  * Generate an answer using smart RAG - AI decides when to use general knowledge
  * @param {string} question - User's question
+ * @param {Array} history - Previous conversation history
  * @returns {Promise<{answer: string, sources: Array, mode: string}>}
  */
-async function generateRAGAnswer(question) {
+async function generateRAGAnswer(question, history = []) {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -107,25 +108,53 @@ async function generateRAGAnswer(question) {
         // Step 2: Build context from posts
         const context = buildContextFromPosts(relevantPosts);
 
-        // Step 3: Build prompt with smart instructions
-        const prompt = `${SMART_PROMPT}
+        // Step 3: Build system prompt with context
+        const systemPrompt = `${SMART_PROMPT}
 
 Context from community posts:
-${context}
+${context}`;
 
-User Question: ${question}
+        // Step 4: Build conversation contents with history
+        const contents = [];
 
-Answer:`;
+        // Add system instruction as first user message if no history
+        if (history.length === 0) {
+            contents.push({
+                role: 'user',
+                parts: [{ text: systemPrompt + '\n\nUser Question: ' + question }]
+            });
+        } else {
+            // Add system prompt as first message
+            contents.push({
+                role: 'user',
+                parts: [{ text: systemPrompt }]
+            });
+            contents.push({
+                role: 'model',
+                parts: [{ text: 'Understood. I will provide helpful, structured responses based on the community posts and my knowledge.' }]
+            });
 
-        // Step 4: Generate answer with Gemini
+            // Add conversation history
+            for (const msg of history) {
+                if (msg.role && msg.parts && msg.parts.length > 0) {
+                    contents.push({
+                        role: msg.role === 'model' ? 'model' : 'user',
+                        parts: [{ text: msg.parts[0].text || '' }]
+                    });
+                }
+            }
+
+            // Add current question
+            contents.push({
+                role: 'user',
+                parts: [{ text: question }]
+            });
+        }
+
+        // Step 5: Generate answer with Gemini
         const response = await ai.models.generateContent({
             model: 'models/gemini-2.5-flash',
-            contents: [
-                {
-                    role: 'user',
-                    parts: [{ text: prompt }]
-                }
-            ]
+            contents: contents
         });
 
         const answer = response.text.trim();
