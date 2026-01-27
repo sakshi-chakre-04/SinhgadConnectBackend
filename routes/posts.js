@@ -425,5 +425,104 @@ router.post('/:id/summarize', auth, async (req, res) => {
   }
 });
 
+// ------------------------------
+// @route   GET /api/posts/personalized
+// @desc    Get personalized post recommendations
+// @access  Private
+// ------------------------------
+router.get('/personalized', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const userDepartment = req.user.department;
+    const userYear = req.user.year;
+
+    // Get posts user has already upvoted (to exclude them)
+    const userUpvotedPosts = await Post.find({ upvotes: userId }).select('_id tags');
+    const upvotedPostIds = userUpvotedPosts.map(p => p._id);
+
+    // Extract tags from upvoted posts for interest-based recommendations
+    const userInterestTags = [...new Set(
+      userUpvotedPosts.flatMap(p => p.tags || [])
+    )];
+
+    // Build recommendation query
+    const recommendations = [];
+
+    // 1. Department/Year match (primary criterion - 70% weight)
+    const departmentYearPosts = await Post.find({
+      _id: { $nin: upvotedPostIds }, // Exclude already upvoted
+      author: { $ne: userId }, // Exclude user's own posts
+      department: userDepartment,
+    })
+      .populate('author', AUTHOR_FIELDS)
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    departmentYearPosts.forEach(post => {
+      recommendations.push({
+        post,
+        score: 0.7, // High priority for department match
+        matchReason: 'department',
+        matchLabel: '📚 Your Department'
+      });
+    });
+
+    // 2. Interest-based match (secondary criterion - 30% weight)
+    if (userInterestTags.length > 0) {
+      const interestPosts = await Post.find({
+        _id: { $nin: [...upvotedPostIds, ...departmentYearPosts.map(p => p._id)] },
+        author: { $ne: userId },
+        tags: { $in: userInterestTags }
+      })
+        .populate('author', AUTHOR_FIELDS)
+        .sort({ createdAt: -1 })
+        .limit(3);
+
+      interestPosts.forEach(post => {
+        const matchingTags = post.tags.filter(tag => userInterestTags.includes(tag));
+        const score = 0.3 * (matchingTags.length / userInterestTags.length);
+
+        recommendations.push({
+          post,
+          score,
+          matchReason: 'interests',
+          matchLabel: '⭐ Based on your interests',
+          matchingTags
+        });
+      });
+    }
+
+    // Sort by score and take top 2 (to make room for 1 resource)
+    recommendations.sort((a, b) => b.score - a.score);
+    const topRecommendations = recommendations.slice(0, 2);
+
+    // Format response
+    const formattedPosts = topRecommendations.map(rec => ({
+      ...rec.post.toObject(),
+      ...getVoteCounts(rec.post),
+      matchReason: rec.matchReason,
+      matchLabel: rec.matchLabel,
+      matchingTags: rec.matchingTags || []
+    }));
+
+    res.json({
+      success: true,
+      posts: formattedPosts,
+      personalizationInfo: {
+        department: userDepartment,
+        year: userYear,
+        interestTags: userInterestTags.slice(0, 5) // Top 5 interest tags
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching personalized posts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch personalized recommendations',
+      posts: []
+    });
+  }
+});
+
 module.exports = router;
 
