@@ -445,6 +445,34 @@ router.get('/personalized', auth, async (req, res) => {
       userUpvotedPosts.flatMap(p => p.tags || [])
     )];
 
+    // FALLBACK: If user has no upvotes, show trending posts
+    if (userUpvotedPosts.length === 0) {
+      const trendingPosts = await Post.find({
+        author: { $ne: userId } // Exclude user's own posts
+      })
+        .populate('author', AUTHOR_FIELDS)
+        .sort({ upvoteCount: -1, createdAt: -1 }) // Sort by popularity, then recency
+        .limit(2);
+
+      const formattedTrending = trendingPosts.map(post => ({
+        ...post.toObject(),
+        ...getVoteCounts(post),
+        matchReason: 'trending',
+        matchLabel: '🔥 Trending Now',
+        matchingTags: []
+      }));
+
+      return res.json({
+        success: true,
+        posts: formattedTrending,
+        personalizationInfo: {
+          department: userDepartment,
+          year: userYear,
+          interestTags: []
+        }
+      });
+    }
+
     // Build recommendation query
     const recommendations = [];
 
