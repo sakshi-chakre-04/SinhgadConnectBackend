@@ -130,6 +130,225 @@ router.get('/user/:userId', async (req, res) => {
 });
 
 // ------------------------------
+// @route   GET /api/posts/personalized
+// @desc    Get personalized post recommendations using multi-factor scoring
+// @access  Private
+// ------------------------------
+router.get('/personalized', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const userDepartment = req.user.department;
+    const userYear = req.user.year;
+
+    // Import cosineSimilarity for semantic matching
+    const { cosineSimilarity } = require('../services/geminiService');
+
+    // Get posts user has already upvoted (with embeddings for interest vector)
+    const userUpvotedPosts = await Post.find({ upvotes: userId })
+      .select('_id tags embedding')
+      .lean();
+    const upvotedPostIds = userUpvotedPosts.map(p => p._id);
+
+    // FALLBACK: If user has no upvotes, show trending posts
+    if (userUpvotedPosts.length === 0) {
+      const trendingPosts = await Post.find({
+        author: { $ne: userId }
+      })
+        .populate('author', AUTHOR_FIELDS)
+        .sort({ createdAt: -1 })
+        .limit(2);
+
+      // Add recency and engagement scores even for fallback
+      const now = new Date();
+      const formattedTrending = trendingPosts.map(post => {
+        const postObj = post.toObject();
+        const daysSincePost = (now - new Date(post.createdAt)) / (1000 * 60 * 60 * 24);
+        const engagementScore = (post.upvotes?.length || 0) + (post.commentCount || 0) * 2;
+
+        return {
+          ...postObj,
+          ...getVoteCounts(post),
+          matchReason: 'trending',
+          matchLabel: daysSincePost < 1 ? '🆕 Fresh Post' : '🔥 Trending Now',
+          matchingTags: [],
+          score: engagementScore
+        };
+      });
+
+      return res.json({
+        success: true,
+        posts: formattedTrending,
+        personalizationInfo: {
+          department: userDepartment,
+          year: userYear,
+          interestTags: [],
+          algorithm: 'fallback-trending'
+        }
+      });
+    }
+
+    // Calculate User Interest Vector (average of upvoted post embeddings)
+    let userInterestVector = null;
+    const postsWithEmbeddings = userUpvotedPosts.filter(p => p.embedding && p.embedding.length > 0);
+
+    if (postsWithEmbeddings.length > 0) {
+      const embeddingLength = postsWithEmbeddings[0].embedding.length;
+      userInterestVector = new Array(embeddingLength).fill(0);
+
+      postsWithEmbeddings.forEach(post => {
+        post.embedding.forEach((val, i) => {
+          userInterestVector[i] += val;
+        });
+      });
+
+      // Average the vector
+      userInterestVector = userInterestVector.map(val => val / postsWithEmbeddings.length);
+    }
+
+    // Get candidate posts (exclude user's own and already upvoted)
+    const candidatePosts = await Post.find({
+      _id: { $nin: upvotedPostIds },
+      author: { $ne: userId }
+    })
+      .populate('author', AUTHOR_FIELDS)
+      .select('+embedding')
+      .sort({ createdAt: -1 })
+      .limit(50) // Get more candidates for better scoring
+      .lean();
+
+    const now = new Date();
+    const recommendations = [];
+
+    // Score each candidate post using multi-factor algorithm
+    candidatePosts.forEach(post => {
+      let totalScore = 0;
+      const matchReasons = [];
+
+      // ===== FACTOR 1: Semantic Similarity (40% weight) =====
+      if (userInterestVector && post.embedding && post.embedding.length > 0) {
+        try {
+          const similarity = cosineSimilarity(userInterestVector, post.embedding);
+          // Normalize similarity from [-1, 1] to [0, 1]
+          const normalizedSimilarity = (similarity + 1) / 2;
+          totalScore += normalizedSimilarity * 0.40;
+
+          if (normalizedSimilarity > 0.6) {
+            matchReasons.push('semantic');
+          }
+        } catch (e) {
+          // Skip if embedding comparison fails
+        }
+      }
+
+      // ===== FACTOR 2: Department Match (25% weight) =====
+      if (post.department === userDepartment) {
+        totalScore += 0.25;
+        matchReasons.push('department');
+      }
+
+      // ===== FACTOR 3: Year Match (15% weight) =====
+      // Map years for relevance (BE posts relevant to TE, etc.)
+      const yearRelevance = {
+        'FE': ['FE', 'SE'],
+        'SE': ['SE', 'FE', 'TE'],
+        'TE': ['TE', 'SE', 'BE'],
+        'BE': ['BE', 'TE']
+      };
+      const relevantYears = yearRelevance[userYear] || [userYear];
+      if (post.author?.year && relevantYears.includes(post.author.year)) {
+        const yearScore = post.author.year === userYear ? 0.15 : 0.08;
+        totalScore += yearScore;
+        if (post.author.year === userYear) {
+          matchReasons.push('year');
+        }
+      }
+
+      // ===== FACTOR 4: Recency (10% weight) =====
+      const daysSincePost = (now - new Date(post.createdAt)) / (1000 * 60 * 60 * 24);
+      let recencyScore = 0;
+      if (daysSincePost < 1) {
+        recencyScore = 0.10; // Posted today
+        matchReasons.push('fresh');
+      } else if (daysSincePost < 7) {
+        recencyScore = 0.07; // This week
+      } else if (daysSincePost < 30) {
+        recencyScore = 0.03; // This month
+      }
+      totalScore += recencyScore;
+
+      // ===== FACTOR 5: Engagement Score (10% weight) =====
+      const upvotes = post.upvotes?.length || 0;
+      const comments = post.commentCount || 0;
+      const engagement = upvotes + comments * 2;
+
+      // Normalize engagement (cap at 50 for max score)
+      const normalizedEngagement = Math.min(engagement / 50, 1);
+      totalScore += normalizedEngagement * 0.10;
+
+      if (engagement >= 10) {
+        matchReasons.push('popular');
+      }
+
+      // Determine the primary match label
+      let matchLabel = '✨ Recommended';
+      if (matchReasons.includes('semantic')) {
+        matchLabel = '🎯 Matches Your Interests';
+      } else if (matchReasons.includes('department') && matchReasons.includes('year')) {
+        matchLabel = '📚 Your Dept & Year';
+      } else if (matchReasons.includes('department')) {
+        matchLabel = '📚 Your Department';
+      } else if (matchReasons.includes('fresh')) {
+        matchLabel = '🆕 Fresh Post';
+      } else if (matchReasons.includes('popular')) {
+        matchLabel = '🔥 Popular Now';
+      }
+
+      recommendations.push({
+        post,
+        score: totalScore,
+        matchReason: matchReasons[0] || 'recommended',
+        matchLabel,
+        matchReasons
+      });
+    });
+
+    // Sort by score and take top 2
+    recommendations.sort((a, b) => b.score - a.score);
+    const topRecommendations = recommendations.slice(0, 2);
+
+    // Format response
+    const formattedPosts = topRecommendations.map(rec => ({
+      ...rec.post,
+      embedding: undefined, // Remove embedding from response
+      ...getVoteCounts({ upvotes: rec.post.upvotes || [], downvotes: rec.post.downvotes || [] }),
+      matchReason: rec.matchReason,
+      matchLabel: rec.matchLabel,
+      matchReasons: rec.matchReasons,
+      score: Math.round(rec.score * 100) / 100 // Round to 2 decimal places
+    }));
+
+    res.json({
+      success: true,
+      posts: formattedPosts,
+      personalizationInfo: {
+        department: userDepartment,
+        year: userYear,
+        upvotedPostCount: userUpvotedPosts.length,
+        hasInterestVector: !!userInterestVector,
+        algorithm: 'multi-factor-embedding'
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching personalized posts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch personalized recommendations',
+      posts: []
+    });
+  }
+});
+
+// ------------------------------
 // @route   GET /api/posts/:id
 // @desc    Get single post by ID
 // @access  Public
@@ -421,133 +640,6 @@ router.post('/:id/summarize', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to generate summary'
-    });
-  }
-});
-
-// ------------------------------
-// @route   GET /api/posts/personalized
-// @desc    Get personalized post recommendations
-// @access  Private
-// ------------------------------
-router.get('/personalized', auth, async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const userDepartment = req.user.department;
-    const userYear = req.user.year;
-
-    // Get posts user has already upvoted (to exclude them)
-    const userUpvotedPosts = await Post.find({ upvotes: userId }).select('_id tags');
-    const upvotedPostIds = userUpvotedPosts.map(p => p._id);
-
-    // Extract tags from upvoted posts for interest-based recommendations
-    const userInterestTags = [...new Set(
-      userUpvotedPosts.flatMap(p => p.tags || [])
-    )];
-
-    // FALLBACK: If user has no upvotes, show trending posts
-    if (userUpvotedPosts.length === 0) {
-      const trendingPosts = await Post.find({
-        author: { $ne: userId } // Exclude user's own posts
-      })
-        .populate('author', AUTHOR_FIELDS)
-        .sort({ upvoteCount: -1, createdAt: -1 }) // Sort by popularity, then recency
-        .limit(2);
-
-      const formattedTrending = trendingPosts.map(post => ({
-        ...post.toObject(),
-        ...getVoteCounts(post),
-        matchReason: 'trending',
-        matchLabel: '🔥 Trending Now',
-        matchingTags: []
-      }));
-
-      return res.json({
-        success: true,
-        posts: formattedTrending,
-        personalizationInfo: {
-          department: userDepartment,
-          year: userYear,
-          interestTags: []
-        }
-      });
-    }
-
-    // Build recommendation query
-    const recommendations = [];
-
-    // 1. Department/Year match (primary criterion - 70% weight)
-    const departmentYearPosts = await Post.find({
-      _id: { $nin: upvotedPostIds }, // Exclude already upvoted
-      author: { $ne: userId }, // Exclude user's own posts
-      department: userDepartment,
-    })
-      .populate('author', AUTHOR_FIELDS)
-      .sort({ createdAt: -1 })
-      .limit(5);
-
-    departmentYearPosts.forEach(post => {
-      recommendations.push({
-        post,
-        score: 0.7, // High priority for department match
-        matchReason: 'department',
-        matchLabel: '📚 Your Department'
-      });
-    });
-
-    // 2. Interest-based match (secondary criterion - 30% weight)
-    if (userInterestTags.length > 0) {
-      const interestPosts = await Post.find({
-        _id: { $nin: [...upvotedPostIds, ...departmentYearPosts.map(p => p._id)] },
-        author: { $ne: userId },
-        tags: { $in: userInterestTags }
-      })
-        .populate('author', AUTHOR_FIELDS)
-        .sort({ createdAt: -1 })
-        .limit(3);
-
-      interestPosts.forEach(post => {
-        const matchingTags = post.tags.filter(tag => userInterestTags.includes(tag));
-        const score = 0.3 * (matchingTags.length / userInterestTags.length);
-
-        recommendations.push({
-          post,
-          score,
-          matchReason: 'interests',
-          matchLabel: '⭐ Based on your interests',
-          matchingTags
-        });
-      });
-    }
-
-    // Sort by score and take top 2 (to make room for 1 resource)
-    recommendations.sort((a, b) => b.score - a.score);
-    const topRecommendations = recommendations.slice(0, 2);
-
-    // Format response
-    const formattedPosts = topRecommendations.map(rec => ({
-      ...rec.post.toObject(),
-      ...getVoteCounts(rec.post),
-      matchReason: rec.matchReason,
-      matchLabel: rec.matchLabel,
-      matchingTags: rec.matchingTags || []
-    }));
-
-    res.json({
-      success: true,
-      posts: formattedPosts,
-      personalizationInfo: {
-        department: userDepartment,
-        year: userYear,
-        interestTags: userInterestTags.slice(0, 5) // Top 5 interest tags
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching personalized posts:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch personalized recommendations',
-      posts: []
     });
   }
 });
