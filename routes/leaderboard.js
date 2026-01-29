@@ -91,16 +91,26 @@ router.get('/', auth, async (req, res) => {
             }))
             .sort((a, b) => b.totalUpvotes - a.totalUpvotes);
 
-        // Get user details for top users
-        const topUserIds = sortedUsers.slice(0, parseInt(limit)).map(u => u.userId);
-        const users = await User.find({ _id: { $in: topUserIds } })
+        // Get user details for ALL users first (needed for department filtering)
+        const allUserIds = sortedUsers.map(u => u.userId);
+        const users = await User.find({ _id: { $in: allUserIds } })
             .select('name department year')
             .lean();
 
         const userMap = new Map(users.map(u => [u._id.toString(), u]));
 
-        // Build leaderboard with ranks
-        const leaderboard = sortedUsers
+        // Filter by department if specified
+        const { department } = req.query;
+        let filteredUsers = sortedUsers;
+        if (department && department !== 'all') {
+            filteredUsers = sortedUsers.filter(score => {
+                const user = userMap.get(score.userId);
+                return user?.department === department;
+            });
+        }
+
+        // Build leaderboard with ranks (re-rank after filtering)
+        const leaderboard = filteredUsers
             .slice(0, parseInt(limit))
             .map((score, index) => {
                 const user = userMap.get(score.userId);
