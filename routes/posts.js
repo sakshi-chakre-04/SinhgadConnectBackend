@@ -156,7 +156,7 @@ router.get('/personalized', auth, async (req, res) => {
       })
         .populate('author', AUTHOR_FIELDS)
         .sort({ createdAt: -1 })
-        .limit(3);
+        .limit(4);
 
       // Add recency and engagement scores even for fallback
       const now = new Date();
@@ -314,7 +314,7 @@ router.get('/personalized', auth, async (req, res) => {
 
     // Sort by score and take top 3
     recommendations.sort((a, b) => b.score - a.score);
-    const topRecommendations = recommendations.slice(0, 3);
+    const topRecommendations = recommendations.slice(0, 4);
 
     // Format response
     const formattedPosts = topRecommendations.map(rec => ({
