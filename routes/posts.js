@@ -312,7 +312,7 @@ router.get('/personalized', auth, async (req, res) => {
       });
     });
 
-    // Sort by score and take top 3
+    // Sort by score and take top 4
     recommendations.sort((a, b) => b.score - a.score);
     const topRecommendations = recommendations.slice(0, 4);
 

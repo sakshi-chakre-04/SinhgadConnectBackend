@@ -1,7 +1,11 @@
 const { GoogleGenAI } = require('@google/genai');
 
-// Initialize the Gemini client - auto-reads GEMINI_API_KEY from env
-const ai = new GoogleGenAI({});
+// Initialize the Gemini client using Vertex AI (Google Cloud)
+const ai = new GoogleGenAI({
+    vertexai: true,
+    project: process.env.GOOGLE_CLOUD_PROJECT,
+    location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+});
 
 /**
  * Generate an embedding vector for the given text using Gemini
@@ -16,7 +20,7 @@ async function generateEmbedding(text) {
 
         // Use text-embedding-004 model for embeddings
         const response = await ai.models.embedContent({
-            model: 'models/text-embedding-004',
+            model: 'text-embedding-004',
             contents: text,
         });
 
@@ -93,7 +97,7 @@ async function generateSummary(title, content) {
         }
 
         const response = await ai.models.generateContent({
-            model: 'models/gemini-2.5-flash',
+            model: 'gemini-2.5-flash',
             contents: [
                 {
                     role: 'user',
@@ -121,7 +125,7 @@ async function analyzeSentiment(content) {
 
     try {
         const response = await ai.models.generateContent({
-            model: 'models/gemini-2.5-flash',
+            model: 'gemini-2.5-flash',
             config: { responseMimeType: 'application/json' },
             contents: [
                 {
@@ -151,7 +155,7 @@ async function generateTags(title, content) {
 
     try {
         const response = await ai.models.generateContent({
-            model: 'models/gemini-2.5-flash',
+            model: 'gemini-2.5-flash',
             config: { responseMimeType: 'application/json' },
             contents: [
                 {
@@ -227,7 +231,7 @@ async function moderateContent(text) {
 Content: "${text}"`;
 
             const response = await ai.models.generateContent({
-                model: 'models/gemini-2.5-flash',
+                model: 'gemini-2.5-flash',
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 config: { responseMimeType: 'application/json' }
             });

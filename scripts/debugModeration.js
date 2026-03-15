@@ -14,7 +14,7 @@ Respond with JSON: {"isSafe": true/false, "reason": "explanation"}`;
 
     try {
         const response = await ai.models.generateContent({
-            model: 'models/gemini-2.0-flash',
+            model: 'gemini-2.0-flash',
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: { responseMimeType: 'application/json' }
         });

@@ -100,7 +100,11 @@ async function retrieveRelevantPosts(question, limit = 5) {
  */
 async function generateRAGAnswer(question, history = []) {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const ai = new GoogleGenAI({
+            vertexai: true,
+            project: process.env.GOOGLE_CLOUD_PROJECT,
+            location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+        });
 
         // Step 1: Retrieve top posts (AI will judge relevance)
         const relevantPosts = await retrieveRelevantPosts(question);
@@ -153,7 +157,7 @@ ${context}`;
 
         // Step 5: Generate answer with Gemini
         const response = await ai.models.generateContent({
-            model: 'models/gemini-2.5-flash',
+            model: 'gemini-2.5-flash',
             contents: contents
         });
 
