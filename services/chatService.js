@@ -1,6 +1,19 @@
 const Post = require('../models/Post');
 const { generateEmbedding, cosineSimilarity } = require('./geminiService');
 const { GoogleGenAI } = require('@google/genai');
+const { GoogleAuth } = require('google-auth-library');
+
+// Read the credentials from the environment variable
+const credentialsStr = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+let credentials;
+
+if (credentialsStr) {
+    try {
+        credentials = JSON.parse(credentialsStr);
+    } catch (error) {
+        // Error already logged in geminiService.js
+    }
+}
 
 /**
  * Professional student guidance prompt
@@ -101,9 +114,14 @@ async function retrieveRelevantPosts(question, limit = 5) {
 async function generateRAGAnswer(question, history = []) {
     try {
         const ai = new GoogleGenAI({
-            vertexai: true,
-            project: process.env.GOOGLE_CLOUD_PROJECT,
-            location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+            vertexai: {
+                project: process.env.GOOGLE_CLOUD_PROJECT,
+                location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+                authClient: credentials ? new GoogleAuth({
+                    credentials,
+                    scopes: ['https://www.googleapis.com/auth/cloud-platform']
+                }) : undefined
+            }
         });
 
         // Step 1: Retrieve top posts (AI will judge relevance)
