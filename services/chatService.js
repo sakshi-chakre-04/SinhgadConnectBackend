@@ -120,7 +120,9 @@ async function generateRAGAnswer(question, history = []) {
                 authClient: credentials ? new GoogleAuth({
                     credentials,
                     scopes: ['https://www.googleapis.com/auth/cloud-platform']
-                }) : undefined
+                }) : new GoogleAuth({
+                    scopes: ['https://www.googleapis.com/auth/cloud-platform']
+                })
             }
         });
 

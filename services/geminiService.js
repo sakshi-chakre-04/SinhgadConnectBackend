@@ -23,7 +23,9 @@ const ai = new GoogleGenAI({
         authClient: credentials ? new GoogleAuth({
             credentials,
             scopes: ['https://www.googleapis.com/auth/cloud-platform']
-        }) : undefined // Fallback to ADC if no JSON is provided
+        }) : new GoogleAuth({
+            scopes: ['https://www.googleapis.com/auth/cloud-platform']
+        }) // Explicitly create GoogleAuth for ADC fallback
     }
 });
 
