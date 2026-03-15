@@ -1,4 +1,17 @@
 require('dotenv').config();
+
+// ============================================================
+// GCP Credentials Setup (must run before any Google SDK imports)
+// On Render, the JSON key is injected as an env var string.
+// We write it to a temp file so Google's official ADC can find it.
+// ============================================================
+const fs = require('fs');
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+  const keyPath = '/tmp/gcp-key.json';
+  fs.writeFileSync(keyPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
+  console.log('✅ GCP credentials written to', keyPath);
+}
 const express = require('express');
 const http = require('http');
 const cors = require('cors');

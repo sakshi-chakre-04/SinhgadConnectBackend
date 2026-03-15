@@ -1,37 +1,6 @@
 const Post = require('../models/Post');
 const { generateEmbedding, cosineSimilarity } = require('./geminiService');
 const { GoogleGenAI } = require('@google/genai');
-const { GoogleAuth } = require('google-auth-library');
-
-// Manual Token Generator for Render
-let authClient;
-const credentialsStr = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-
-if (credentialsStr) {
-    try {
-        const credentials = JSON.parse(credentialsStr);
-        authClient = new GoogleAuth({
-            credentials,
-            scopes: ['https://www.googleapis.com/auth/cloud-platform']
-        });
-    } catch (e) {
-        // Error logged in geminiService
-    }
-} else {
-    // Local development fallback
-    authClient = new GoogleAuth({
-        scopes: ['https://www.googleapis.com/auth/cloud-platform']
-    });
-}
-
-// Custom Auth Client Wrapper for Vertex AI
-const customAuth = {
-    getAccessToken: async () => {
-        const client = await authClient.getClient();
-        const token = await client.getAccessToken();
-        return token.token; 
-    }
-};
 
 /**
  * Professional student guidance prompt
@@ -132,11 +101,9 @@ async function retrieveRelevantPosts(question, limit = 5) {
 async function generateRAGAnswer(question, history = []) {
     try {
         const ai = new GoogleGenAI({
-            vertexai: {
-                project: process.env.GOOGLE_CLOUD_PROJECT,
-                location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
-                authClient: customAuth
-            }
+            vertexai: true,
+            project: process.env.GOOGLE_CLOUD_PROJECT,
+            location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
         });
 
         // Step 1: Retrieve top posts (AI will judge relevance)
