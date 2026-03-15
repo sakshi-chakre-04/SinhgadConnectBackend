@@ -11,6 +11,13 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
   fs.writeFileSync(keyPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
   process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
   console.log('✅ GCP credentials written to', keyPath);
+
+  // Auto-extract project_id from the JSON if GOOGLE_CLOUD_PROJECT is not set
+  if (!process.env.GOOGLE_CLOUD_PROJECT) {
+    const creds = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+    process.env.GOOGLE_CLOUD_PROJECT = creds.project_id;
+    console.log('✅ Using GCP project:', process.env.GOOGLE_CLOUD_PROJECT);
+  }
 }
 const express = require('express');
 const http = require('http');
