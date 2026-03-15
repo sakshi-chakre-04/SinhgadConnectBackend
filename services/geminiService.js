@@ -1,31 +1,10 @@
 const { GoogleGenAI } = require('@google/genai');
 
-const { GoogleAuth } = require('google-auth-library');
-
-// Read the credentials from the environment variable (useful for Render/Render-like platforms)
-const credentialsStr = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-let credentials;
-
-if (credentialsStr) {
-    try {
-        credentials = JSON.parse(credentialsStr);
-        console.log("Successfully parsed GOOGLE_APPLICATION_CREDENTIALS_JSON");
-    } catch (error) {
-        console.error("Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON. Ensure it is valid JSON.", error);
-    }
-}
-
 // Initialize the Gemini client using Vertex AI (Google Cloud)
 const ai = new GoogleGenAI({
     vertexai: {
         project: process.env.GOOGLE_CLOUD_PROJECT,
-        location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
-        authClient: credentials ? new GoogleAuth({
-            credentials,
-            scopes: ['https://www.googleapis.com/auth/cloud-platform']
-        }) : new GoogleAuth({
-            scopes: ['https://www.googleapis.com/auth/cloud-platform']
-        }) // Explicitly create GoogleAuth for ADC fallback
+        location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
     }
 });
 
