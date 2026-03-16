@@ -1,16 +1,14 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
 const { generateRAGAnswer } = require('../services/chatService');
+const { createUserDailyLimiter } = require('../middleware/userDailyLimiter');
 
 const router = express.Router();
 
-// Strict rate limit for chat: max 50 messages per hour per IP
-const chatLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 50,
-    message: { success: false, message: 'Chat limit reached. You can send 50 messages per hour.' },
-    standardHeaders: true,
-    legacyHeaders: false,
+// Per-user daily limit: Normal=10/day, Pro=100/day
+const chatLimiter = createUserDailyLimiter({
+    normalLimit: 10,
+    proLimit: 100,
+    message: 'Daily chat limit reached. Upgrade to Pro for 100 messages/day!'
 });
 
 // ------------------------------

@@ -15,13 +15,13 @@ const { sendNotificationToUser } = require('../socket');
 
 const router = express.Router();
 
-// Strict rate limit for post creation: max 20 posts per hour per IP
-const postCreateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 20,
-  message: { success: false, message: 'Post limit reached. You can create 20 posts per hour.' },
-  standardHeaders: true,
-  legacyHeaders: false,
+const { createUserDailyLimiter } = require('../middleware/userDailyLimiter');
+
+// Per-user daily limit: 50 posts/day for all users
+const postCreateLimiter = createUserDailyLimiter({
+  normalLimit: 50,
+  proLimit: 50,
+  message: 'Daily post limit reached. You can create 50 posts per day.'
 });
 
 // Milestone thresholds for upvote notifications
