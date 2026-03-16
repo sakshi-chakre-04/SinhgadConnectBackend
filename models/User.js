@@ -55,6 +55,14 @@ const userSchema = new mongoose.Schema({
   isVerified: {
     type: Boolean,
     default: false
+  },
+  isPro: {
+    type: Boolean,
+    default: false
+  },
+  proExpiresAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

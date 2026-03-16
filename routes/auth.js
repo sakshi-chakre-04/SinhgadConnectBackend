@@ -44,7 +44,9 @@ router.post('/register', async (req, res) => {
         name: user.name,
         email: user.email,
         department: user.department,
-        year: user.year
+        year: user.year,
+        isPro: user.isPro || false,
+        proExpiresAt: user.proExpiresAt || null
       }
     });
   } catch (error) {
@@ -100,7 +102,9 @@ router.post('/login', async (req, res) => {
         name: user.name,
         email: user.email,
         department: user.department,
-        year: user.year
+        year: user.year,
+        isPro: user.isPro || false,
+        proExpiresAt: user.proExpiresAt || null
       }
     });
   } catch (error) {
@@ -138,7 +142,9 @@ router.patch('/me', auth, async (req, res) => {
         year: updatedUser.year,
         bio: updatedUser.bio,
         skills: updatedUser.skills || [],
-        createdAt: updatedUser.createdAt
+        createdAt: updatedUser.createdAt,
+        isPro: updatedUser.isPro || false,
+        proExpiresAt: updatedUser.proExpiresAt || null
       }
     });
   } catch (error) {
@@ -160,7 +166,9 @@ router.get('/me', auth, async (req, res) => {
       year: req.user.year,
       bio: req.user.bio,
       skills: req.user.skills || [],
-      createdAt: req.user.createdAt
+      createdAt: req.user.createdAt,
+      isPro: req.user.isPro || false,
+      proExpiresAt: req.user.proExpiresAt || null
     }
   });
 });
