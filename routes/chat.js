@@ -1,14 +1,24 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { generateRAGAnswer } = require('../services/chatService');
 
 const router = express.Router();
+
+// Strict rate limit for chat: max 50 messages per hour per IP
+const chatLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 50,
+    message: { success: false, message: 'Chat limit reached. You can send 50 messages per hour.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 // ------------------------------
 // @route   POST /api/chat
 // @desc    Get AI response using RAG
 // @access  Public (can be made private with auth middleware)
 // ------------------------------
-router.post('/', async (req, res) => {
+router.post('/', chatLimiter, async (req, res) => {
     try {
         const { message, history } = req.body;
 

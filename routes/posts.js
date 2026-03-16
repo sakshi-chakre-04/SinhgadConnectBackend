@@ -3,6 +3,7 @@ const Post = require('../models/Post');
 const Comment = require('../models/Comment');
 const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
+const rateLimit = require('express-rate-limit');
 const {
   generatePostEmbedding,
   generateSummary,
@@ -13,6 +14,15 @@ const {
 const { sendNotificationToUser } = require('../socket');
 
 const router = express.Router();
+
+// Strict rate limit for post creation: max 20 posts per hour per IP
+const postCreateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  message: { success: false, message: 'Post limit reached. You can create 20 posts per hour.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Milestone thresholds for upvote notifications
 const UPVOTE_MILESTONES = [5, 10, 25, 50, 100, 250, 500, 1000];
@@ -372,7 +382,7 @@ router.get('/:id', async (req, res) => {
 // @desc    Create a new post with AI-generated content
 // @access  Private
 // ------------------------------
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, postCreateLimiter, async (req, res) => {
   try {
     const { title, content, department, postType, attachments } = req.body;
     if (!title || !content || !department) {
