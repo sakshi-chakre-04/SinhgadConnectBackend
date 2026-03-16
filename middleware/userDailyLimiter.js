@@ -57,16 +57,14 @@ const createUserDailyLimiter = ({ normalLimit, proLimit, message }) => {
             dailyCounts[userId] = { count: 0, resetAt: getResetTime(), isPro: false };
         }
 
-        // Check isPro from DB once per day (cached in entry)
-        if (!dailyCounts[userId]._proChecked) {
-            try {
-                const user = await User.findById(userId).select('isPro proExpiresAt');
-                const isProActive = user?.isPro && (!user.proExpiresAt || new Date() < user.proExpiresAt);
-                dailyCounts[userId].isPro = isProActive || false;
-                dailyCounts[userId]._proChecked = true;
-            } catch {
-                dailyCounts[userId].isPro = false;
-            }
+        // Always verify pro status from DB to ensure instant upgrades work
+        try {
+            const user = await User.findById(userId).select('isPro proExpiresAt');
+            const isProActive = user?.isPro && (!user.proExpiresAt || new Date() < user.proExpiresAt);
+            dailyCounts[userId].isPro = isProActive || false;
+            dailyCounts[userId]._proChecked = true;
+        } catch {
+            dailyCounts[userId].isPro = false;
         }
 
         const limit = dailyCounts[userId].isPro ? proLimit : normalLimit;
